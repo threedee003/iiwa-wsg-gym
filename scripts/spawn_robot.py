@@ -15,6 +15,10 @@ with open("../configs/robot_config.yaml", "r") as file:
     config = yaml.safe_load(file)
 
 
+sim_type = gymapi.SIM_FLEX
+
+
+
 asset_root = ".."
 asset_path = config["robot"]["urdf_path"]
 
