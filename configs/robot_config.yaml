@@ -1,0 +1,3 @@
+-robot:
+  robot_name: iiwa14
+  urdf_path: "./iiwa14.urdf"
