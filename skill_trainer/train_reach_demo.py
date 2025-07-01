@@ -13,6 +13,16 @@ from isaacgym import gymapi
 from pprint import pprint 
 
 
+'''
+
+This trainer includes a pd controller to perform demonstration for reaching.
+
+
+'''
+
+
+
+
 def display(config):
       print("=========================")
       print("Training for < Reach > skill")
@@ -112,13 +122,17 @@ def train():
      init_jt.append(0.)
      init_jt.append(0.)
 
+
+
+
+
      gym.set_actor_dof_states(env, scene.robot_handle, init_jt, gymapi.STATE_POS)
 
-     # Modifying this part as a hack
-     # final_eef, quat_robF = scene.to_robot_frame(fixed_target, quat)
-     # final_jt = fkik.get_ik(qinit=init_jt, pos = final_eef, quat=quat_robF)
-     # final_jt.append(0.)
-     # final_jt.append(0.)
+
+     final_eef, quat_robF = scene.to_robot_frame(fixed_target, quat)
+     final_jt = fkik.get_ik(qinit=init_jt, pos = final_eef, quat=quat_robF)
+     final_jt.append(0.)
+     final_jt.append(0.)
 
 
      steps = 0
@@ -131,76 +145,81 @@ def train():
      #  flag = False
      
      while scene.viewer_running():
-               if num_episode == episodes:
-                    print("===Training Complete===")
-                    break
-               if done:
-                    print(f"Episode : {num_episode} | Reward : {eps_reward}")
-                    writer.add_scalar('reward/train', eps_reward, num_episode)
-                    scene.reset_robot(jt = init_jt)
-                   
-                    if random_pos and eps_reward > 600.:
-                         print('===========================================')
-                         print('======= Randomising position ==============')
-                         print('===========================================')
-                         target = positon_sampler(mid_pos, boundaries)
-                         scene.update_target(pos=target, quat=np.array(config['env']['traditional_quat']))
-                    steps = 0
-                    eps_reward = 0
-                    num_episode += 1
-               if steps > horizon:
-                    print(f"Episode : {num_episode} | Reward : {eps_reward}")
-                    writer.add_scalar('reward/train', eps_reward, num_episode)
-                    scene.reset_robot(jt = init_jt)
+
+                  if num_episode == episodes:
                     
-                    if random_pos and eps_reward > 600.:
-                         print('===========================================')
-                         print('======= Randomising position ==============')
-                         print('===========================================')
-                         target = positon_sampler(mid_pos, boundaries)
-                         scene.update_target(pos=target, quat=np.array(config['env']['traditional_quat']))
-                    steps = 0
-                    eps_reward = 0
-                    num_episode += 1
+                        print("===Training Complete===")
+                        break
+                  if done:
+                        print(f"Episode : {num_episode} | Reward : {eps_reward}")
+                        writer.add_scalar('reward/train', eps_reward, num_episode)
+                        scene.reset_robot(jt = init_jt)
+                        
+                        if random_pos and eps_reward > 590.:
+                              print('===========================================')
+                              print('======= Randomising position ==============')
+                              print('===========================================')
+                              target = positon_sampler(mid_pos, boundaries)
+                              scene.update_target(pos=target, quat=np.array(config['env']['traditional_quat']))
+                        steps = 0
+                        eps_reward = 0
+                        num_episode += 1
+                  if steps > horizon:
+                        print(f"Episode : {num_episode} | Reward : {eps_reward}")
+                        writer.add_scalar('reward/train', eps_reward, num_episode)
+                        scene.reset_robot(jt = init_jt)
+                        
+                        if random_pos and eps_reward > 590.:
+                              print('===========================================')
+                              print('======= Randomising position ==============')
+                              print('===========================================')
+                              target = positon_sampler(mid_pos, boundaries)
+                              scene.update_target(pos=target, quat=np.array(config['env']['traditional_quat']))
+                        steps = 0
+                        eps_reward = 0
+                        num_episode += 1
+
+                  actions = scene.calculate_vel_cmd(jt=final_jt)
+
+            #    if num_episode < warmup:
+            #         actions = np.random.uniform(low=-1., high=1., size = (7))
+            #       #   actions = scene.calculate_vel_cmd(jt=final_jt)
+            #    else:
+            #         actions = agent.select_action(obs)
+            #         # actions = scene.calculate_vel_cmd(jt=final_jt)
             
-               # if num_episode < warmup:
-               #      actions = np.random.uniform(low=-1., high=1., size = (7))
-               # else:
-               #      actions = agent.select_action(obs)
-               actions = agent.select_action(obs)
 
-               if memory.can_sample(batch_size=batch_size):
-                    for i in range(updates_per_step):
-                         critic1_loss, critic2_loss, policy_loss, ent_loss, alpha = agent.update_parameters(
-                              memory, batch_size, updates
-                         )
-                         writer.add_scalar('loss/critic1', critic1_loss, updates)
-                         writer.add_scalar("loss/critic2", critic2_loss, updates)
-                         writer.add_scalar("loss/policy", policy_loss, updates)
-                         writer.add_scalar("loss/entropy_loss", ent_loss, updates)
-                         writer.add_scalar("entropy_temperature/alpha", alpha, updates)
-                         updates += 1
-                         
-               scene.pre_physics_step(actions=actions)
-               scene.step()
-               next_obs, rew, done = scene.post_physics_step(step=steps)
-               eps_reward += rew
-               steps += 1
+                  if memory.can_sample(batch_size=batch_size):
+                        for i in range(updates_per_step):
+                              critic1_loss, critic2_loss, policy_loss, ent_loss, alpha = agent.update_parameters(
+                                    memory, batch_size, updates
+                              )
+                              writer.add_scalar('loss/critic1', critic1_loss, updates)
+                              writer.add_scalar("loss/critic2", critic2_loss, updates)
+                              writer.add_scalar("loss/policy", policy_loss, updates)
+                              writer.add_scalar("loss/entropy_loss", ent_loss, updates)
+                              writer.add_scalar("entropy_temperature/alpha", alpha, updates)
+                              updates += 1
+                              
+                  scene.pre_physics_step(actions=actions)
+                  scene.step()
+                  next_obs, rew, done = scene.post_physics_step(step=steps)
+                  eps_reward += rew
+                  steps += 1
 
-               mask = 1 if steps == horizon else float(not done)
-               memory.store_transition(state=obs, 
+                  mask = 1 if steps == horizon else float(not done)
+                  memory.store_transition(state=obs, 
                                         action=actions, 
                                         reward=rew,
                                         state_=next_obs,
                                         done=mask)
-               obs = next_obs
+                  obs = next_obs
 
-               if num_episode % 10 == 0 and steps == 1:
-                    print('===========================================')
-                    print(f"Saving Models in episode {num_episode}")
-                    print('===========================================')
-
-                    agent.save_checkpoint(path=task_dir + "/checkpoints")
+                  if num_episode % 10 == 0 and steps == 1:
+                        print('===========================================')
+                        print(f"Saving Models in episode {num_episode}")
+                        print('===========================================')
+                        agent.save_checkpoint(path=task_dir + "/checkpoints")
 
      scene.__del__()
            

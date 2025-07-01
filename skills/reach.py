@@ -7,8 +7,10 @@ from isaacgym.torch_utils import *
 from scipy.spatial.transform import Rotation as R
 
 
+
 class Reach(iiwaScene):
       def __init__(self,
+                   control_freq: float = 40.,
                    scale_reward: float = 1.,
                    reach_pos: np.ndarray = np.array([0., 0., 0.]),
                    reach_quat: np.ndarray = np.array([0., 0., 0., 1.]),
@@ -16,14 +18,14 @@ class Reach(iiwaScene):
                    initial_quat: np.ndarray = np.array([0., 0., 0., 1.]),
                    randomise_pose: bool = False
                    ):
-            super(Reach, self).__init__(control_type='velocity')
+            super(Reach, self).__init__(control_type='velocity', control_freq=control_freq)
             self.scale_reward = scale_reward
             self.reach_pos = reach_pos
             self.reach_quat = reach_quat
             self.initial_pos = initial_pos
             self.initial_quat = initial_quat
-            source_color = (1., 0., 0.)
-            target_color = (0., 1., 0.)
+            target_color = (1., 0., 0.)
+            source_color = (0., 1., 0.)
             self.random = randomise_pose
 
             self.initial_quat = self.transform_object_to_tool0(self.initial_quat)
@@ -42,6 +44,7 @@ class Reach(iiwaScene):
             attractor_props.damping = 0
             attractor_props.axes = gymapi.AXIS_ALL
             attractor_props.target.p = gymapi.Vec3(initial_pos[0], initial_pos[1], initial_pos[2])
+            attractor_props.target.r = gymapi.Quat(self.initial_quat[0], self.initial_quat[1], self.initial_quat[2], self.initial_quat[3])
             self.source_handle = self.gym.create_rigid_body_attractor(self.env, attractor_props)
             axes_geom = gymutil.AxesGeometry(0.1)
             gymutil.draw_lines(axes_geom, self.gym, self.viewer, self.env, attractor_props.target)
@@ -70,12 +73,13 @@ class Reach(iiwaScene):
             self.reach_quat = quat
             # engg this for eef
             self.reach_quat = self.transform_object_to_tool0(self.reach_quat)
+            
 
             #clear points
             self.gym.clear_lines(self.viewer)
 
-            source_color = (1., 0., 0.)
-            target_color = (0., 1., 0.)
+            target_color = (1., 0., 0.)
+            source_color = (0., 1., 0.)
             attractor_props = gymapi.AttractorProperties()
             axes_geom = gymutil.AxesGeometry(0.1) 
             sphere_rot = gymapi.Quat.from_euler_zyx(0.5 * math.pi, 0, 0)
@@ -85,6 +89,7 @@ class Reach(iiwaScene):
             attractor_props.damping = 0
             attractor_props.axes = gymapi.AXIS_ALL
             attractor_props.target.p = gymapi.Vec3(self.initial_pos[0], self.initial_pos[1], self.initial_pos[2])
+            attractor_props.target.r = gymapi.Quat(self.initial_quat[0], self.initial_quat[1], self.initial_quat[2], self.initial_quat[3])
             self.source_handle = self.gym.create_rigid_body_attractor(self.env, attractor_props)
             axes_geom = gymutil.AxesGeometry(0.1)
             gymutil.draw_lines(axes_geom, self.gym, self.viewer, self.env, attractor_props.target)
@@ -105,13 +110,25 @@ class Reach(iiwaScene):
             new_rot = object_rot * flip_rot * xy_rot
             return new_rot.as_quat()
 
-      def _compute_reward(self):
+
+      def get_temporal_penalty(self, step, mode: str = 'linear'):
+            if mode == 'linear':
+                  alph = 0.0045
+                  penalty = -alph * step
+            elif mode == 'exp':
+                  k = 0.01282
+                  penalty = -2.25 * (1 - np.exp(-k * step))
+            return penalty
+      
+
+      def _compute_reward(self, step):
             '''
             Reward shaping for reaching skill.
 
             reaching reward -> [0, 1] : Based on pos of target and current pos.
             quaternion reward -> [0, 1] : Based on target orientation and current orientation
             success reward -> {0., 0.25} : If not reached/ reached binary reward.
+            As time increases we reward negetively
 
             '''
             eef_pose = self.gym.get_actor_rigid_body_states(self.env, self.robot_handle, gymapi.STATE_POS)[-1]
@@ -119,26 +136,27 @@ class Reach(iiwaScene):
             eef_quat = np.array([eef_pose[0][1]['x'], eef_pose[0][1]['y'], eef_pose[0][1]['z'], eef_pose[0][1]['w']])
             reward = 0.
             dist = np.linalg.norm(eef_pos-self.reach_pos)
-            quat_dot = np.abs(np.dot(eef_quat, self.reach_quat))
-            quat_error = 2 * np.arccos(np.clip(quat_dot, -1.0, 1.0))  
+            quat_error = np.linalg.norm(self.orientation_error(torch.from_numpy(self.reach_quat)[None], torch.from_numpy(eef_quat)[None]).numpy())
             quat_reward = 1 - np.tanh(10. * quat_error)
             reaching_reward = 1 - np.tanh(10.0*dist)
             reward += reaching_reward
             reward += quat_reward
             if self._success(eef_pos, eef_quat):
                   reward += 0.25
+            # reward += self.get_temporal_penalty(step)
             if self.scale_reward is not None:
                   reward *= self.scale_reward / 2.25
             return reward
       
       def _success(self, pos: np.ndarray, quat: np.ndarray):
             n1 = np.linalg.norm(pos-self.reach_pos)
-            n2 = np.abs(np.dot(quat, self.reach_quat))
-            n2 = np.arccos(np.clip(n2, -1.0, 1.0))
-            if n1 <= 0.039 and n2 <= 0.04:
+            if n1 <= 0.009:
                   return True
             else:
                   return False
+
+
+
 
 
 
@@ -172,8 +190,10 @@ class Reach(iiwaScene):
             eef_quat = np.array([eef_pose[0][1]['x'], eef_pose[0][1]['y'], eef_pose[0][1]['z'], eef_pose[0][1]['w']])
             eef_pos, eef_quat = self.to_robot_frame(pos = eef_pos, quat = eef_quat)
             target_pos, target_quat = self.to_robot_frame(pos=self.reach_pos, quat=self.reach_quat)
-            proprio_ = np.concatenate((joint_pos_cos, joint_pos_sin, joint_vel, eef_pos, eef_quat), axis = 0)
-            obs = np.concatenate((target_pos, target_quat, proprio_), axis = 0)
+            proprio_ = np.concatenate((joint_pos_cos, joint_pos_sin, joint_vel), axis = 0)
+            pos_error = eef_pos - target_pos
+            or_error = self.orientation_error(torch.from_numpy(target_quat)[None], torch.from_numpy(eef_quat)[None])
+            obs = np.concatenate((pos_error, or_error.view(3,).numpy(), proprio_), axis = 0)
             return obs, eef_pos, eef_quat
 
 
@@ -188,17 +208,10 @@ class Reach(iiwaScene):
                         actions = np.concatenate((actions, jt_pos), axis = 0)
                   self.apply_arm_action(action=actions.tolist())
 
-      def post_physics_step(self):
-            reward = self._compute_reward()
+      def post_physics_step(self, step):
+            reward = self._compute_reward(step=step)
             obs, ps, q = self._get_observations()
             done = self._success(ps, q)
             return obs, reward, done
-      
 
-      def orientation_error(desired, current):
-            cc = quat_conjugate(current)
-            q_r = quat_mul(desired, cc)
-            return q_r[:, 0:3] * torch.sign(q_r[:, 3]).unsqueeze(-1)
-
-            
 

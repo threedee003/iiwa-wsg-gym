@@ -1,0 +1,35 @@
+env:
+  mid_pos: [12.6, 5.02, 1.05]    # in metre
+  offset: [0.15, 0.1, 0.12] 
+  traditional_quat: [0.0, 0.0, 0.0, 1.0]
+  randomise_target_pos: true
+  control_freq : 60.
+  randomise_after: 50
+
+# for randomising spawn position
+extras:
+  mid_pos: [12.6, 5.02, 1.05]
+  offset: [0.07, 0.01, 0.06]
+  traditional_quat: [0.0, 0.0, 0.0, 1.0]
+  randomise_source_pos: []
+
+
+
+train:
+  replay_buffer_size: 10000000
+  num_episodes: 200000
+  warmup: 20
+  batch_size: 64
+  updates_per_step: 1
+  gamma: 0.99
+  tau: 0.005
+  alpha: 0.15
+  policy: "Gaussian"
+  target_update_interval: 1
+  automatic_entropy_tuning: false
+  hidden_size: 756
+  learning_rate: 0.0001
+  horizon: 900  # try with 2000 later
+  obs_size: 27
+  action_space: 7
+  task_dir: "/home/bikram/Documents/isaacgym/skill_data/reach"

@@ -4,22 +4,27 @@ import math
 import numpy as np
 from isaacgym import gymapi
 from isaacgym import gymutil
+from isaacgym import gymtorch
 from isaacgym.torch_utils import *
 import random
 from pprint import pprint
 from scipy.spatial.transform import Rotation as R
+import torch
 
+import rospy
+import numpy as np
+from geometry_msgs.msg import Vector3, Twist
+from sensor_msgs.msg import Joy
 
 
 axes_geom = gymutil.AxesGeometry(0.1)
 ROOT = "/home/bikram/Documents/isaacgym/assets"
 
 
-class iiwaScene:
+class iiwaSceneOSC:
 
       def __init__(self,
-                   control_type: str = "position",
-                   control_freq: float = 40.,
+                   control_type: str = "osc"
                    ):
             self.gym = gymapi.acquire_gym()
             self.sim_params = gymapi.SimParams()
@@ -29,10 +34,10 @@ class iiwaScene:
             compute_device_id = 0
             graphics_device_id = 0
             self.control_type = control_type
-            available_control_types = ['position', 'velocity', 'torque']
+            available_control_types = ['osc']
             assert control_type in available_control_types, f"only available control modes are : {available_control_types}"
             
-            self.sim_params.dt = 1 / control_freq
+
             if sim_type == gymapi.SIM_FLEX:
                   self.sim_params.substeps = 4
                   self.sim_params.flex.solver_type = 5
@@ -51,20 +56,8 @@ class iiwaScene:
                   self.sim_params.physx.use_gpu = True
                   self.sim_params.physx.rest_offset = 0.001
 
-                  ### accordint to IsaacGymEnvs
-                  # self.sim_params.physx.num_threads = 6
-                  # self.sim_params.physx.solver_type = 1
-                  # self.sim_params.physx.num_position_iterations = 8
-                  # self.sim_params.physx.num_velocity_iterations = 0
-                  # self.sim_params.physx.max_gpu_contact_pairs = 8388608
-                  # self.sim_params.physx.rest_offset = 0.
-                  # self.sim_params.physx.use_gpu = True
-                  # self.sim_params.physx.bounce_threshold_velocity = 0.02
-                  # self.sim_params.physx.max_depenetration_velocity = 1000.0
-                  # self.sim_params.physx.default_buffer_size_multiplier = 25.0
-                  # self.sim_params.physx.contact_offset = 0.002
-
             self.sim = self.gym.create_sim(compute_device_id, graphics_device_id, sim_type, self.sim_params)
+            print(graphics_device_id)
             self.plane_params = gymapi.PlaneParams()
 
             self.plane_params.normal = gymapi.Vec3(0, 0, 1) # z-up!
@@ -93,34 +86,12 @@ class iiwaScene:
             robot_props["damping"][7:].fill(400.)
             robot_props['friction'][7:].fill(10.)   #default 100.
 
-            # cabinet_props = self.gym.get_asset_dof_properties(cabinet_)
-            # cabinet_props['friction'][:].fill(100.)
+            robot_props["driveMode"][:7].fill(gymapi.DOF_MODE_EFFORT)
+            robot_props["stiffness"][:7].fill(0.)
+            robot_props["damping"][:7].fill(0.)
+            robot_upper_limits = robot_props["upper"]
+            robot_lower_limits = robot_props["lower"]
 
-            # 1100, 300
-            if self.control_type == 'position':
-                  
-                  robot_props["driveMode"][:7].fill(gymapi.DOF_MODE_POS)
-                  robot_props["stiffness"][:7].fill(700.)
-                  robot_props["damping"][:7].fill(400.)
-                  # robot_props['stiffness'][:7].fill(0.)
-                  # robot_props['damping'][:7].fill(400.)
-             
-
-            elif self.control_type == 'velocity':
-                  robot_props["driveMode"][:7].fill(gymapi.DOF_MODE_VEL)
-                  robot_props["stiffness"][:7].fill(0.)
-                  robot_props["damping"][:7].fill(1200.)
-                  robot_props['friction'][:7].fill(100.)
-
-            else:
-                  robot_props["driveMode"][:7].fill(gymapi.DOF_MODE_EFFORT)
-                  robot_props["stiffness"][:7].fill(0.)
-                  robot_props["damping"][:7].fill(0.)
-
-                  robot_props["driveMode"][7:].fill(gymapi.DOF_MODE_EFFORT)
-                  robot_props["stiffness"][7:].fill(0.)
-                  robot_props["damping"][7:].fill(0.)
-                  robot_props["friction"][7:].fill(1.)
 
 
             table_ = self._create_table_()
@@ -141,111 +112,16 @@ class iiwaScene:
             pose.r = gymapi.Quat( 0, 0, 0.7068252, 0.7073883)
             self.robot_handle = self.gym.create_actor(self.env, robot_, pose, "robot", 0, 0)
             self.table_handle = self.gym.create_actor(self.env, table_, self.table_pose, "table", 0, 0)
-            #cube is off for now
-            # self.cube_handle = self.gym.create_actor(self.env, cube_, self.cube_pose, "cube", 0, 0)
-            # self.gym.set_rigid_body_color(self.env, self.cube_handle, 0, gymapi.MESH_VISUAL_AND_COLLISION, self.cube_color)
+            self.cube_handle = self.gym.create_actor(self.env, cube_, self.cube_pose, "cube", 0, 0)
+            self.gym.set_rigid_body_color(self.env, self.cube_handle, 0, gymapi.MESH_VISUAL_AND_COLLISION, self.cube_color)
             self.gym.set_actor_dof_properties(self.env, self.robot_handle, robot_props)
-            # self.gym.set_actor_dof_properties(self.env, self.cabinet_handle, cabinet_props)
             self.robot_origin = np.array([12.0, 5.0, 0.7])
             self.robot_quat = np.array([0, 0, 0.7068252, 0.7073883])
 
+            self.iiwa_hand_idx = self.gym.get_asset_rigid_body_dict(robot_)['iiwa_link_ee']
+            self.gym.prepare_sim(self.sim)
+  
 
-      def compute_reward(self):
-            raise NotImplementedError("Modified in subclass")
-      
-      def calculate_vel_cmd(self, jt: np.ndarray):
-            kp = 2.
-            kd = 1.
-            dof_states = self.gym.get_actor_dof_states(self.env, self.robot_handle, gymapi.STATE_ALL)
-            joint_pos = [dof_state['pos'] for dof_state in dof_states]
-            joint_vel = [dof_state['vel'] for dof_state in dof_states]  
-            jt_error = jt-np.array(joint_pos[:7])
-            vel_cmd = (kp*jt_error - kd*np.array(joint_vel[:7]))
-            # print(vel_cmd)
-            return vel_cmd
-      
-
-
-      
-      def reach_jt_position(self, desired_jt: np.ndarray, hack: np.ndarray = None):
-            '''
-            hack is for testbed_demos when using this function to make it look like rl control
-            '''
-            kp = 4.
-            kd = 1.
-            assert self.control_type == 'velocity', f"only for velocity control"
-            dof_states = self.gym.get_actor_dof_states(self.env, self.robot_handle, gymapi.STATE_ALL)
-            joint_pos = [dof_state['pos'] for dof_state in dof_states]
-            joint_vel = [dof_state['vel'] for dof_state in dof_states]
-            gripper_jts = np.array([0., 0.])
-            desired_jt = np.concatenate((desired_jt, gripper_jts), axis = 0)
-            jt_error = desired_jt-np.array(joint_pos)
-            vel_cmd = (kp*jt_error - kd*np.array(joint_vel))
-            if hack is not None:
-                  vel_cmd = vel_cmd + hack
-            vel_cmd = vel_cmd.tolist()
-            self.gym.set_actor_dof_velocity_targets(self.env, self.robot_handle, vel_cmd)
-
-
-      def reached_jt(self, desired_jt: np.ndarray, eps: float = None):
-            if eps is None:
-                  eps = 0.009
-            dof_states = self.gym.get_actor_dof_states(self.env, self.robot_handle, gymapi.STATE_ALL)
-            joint_pos = [dof_state['pos'] for dof_state in dof_states]
-            joint_pos.pop()
-            joint_pos.pop()
-            joint_pos = np.array(joint_pos)
-            dist = np.linalg.norm(joint_pos-desired_jt)
-            if dist >= eps:
-                  return False
-            else:
-                  return True
-
-      def check_gripper_status(self, status: str):
-            dof_states = self.gym.get_actor_dof_states(self.env, self.robot_handle, gymapi.STATE_ALL)
-            joint_pos = [dof_state['pos'] for dof_state in dof_states]
-            if status == 'open':
-                  n = np.linalg.norm(joint_pos[7]+0.04 - joint_pos[8]+0.04)
-                  if n <= 0.0003:
-                        return True
-                  else:
-                        return False
-
-            if status == 'close':
-                  pass           
-
-
-      def gripper_action(self, act: str):
-            if act == 'open':
-                  joint_pos = [0.] * 9
-                  joint_pos[7] = -0.04
-                  joint_pos[8] = 0.04
-                  self.gym.set_actor_dof_position_targets(self.env, self.robot_handle, joint_pos)
-            if act == 'close':
-                  joint_pos = [0.]*9
-                  joint_pos[7] = -0.01
-                  joint_pos[8] = 0.01
-                  self.gym.set_actor_dof_position_targets(self.env, self.robot_handle, joint_pos)     
-
-
-
-
-      def apply_arm_action(self, action: list):
-            if self.control_type == 'position':
-                  action = np.array(action)
-                  dof_states = self.gym.get_actor_dof_states(self.env, self.robot_handle, gymapi.STATE_ALL)
-                  joint_pos = [dof_state['pos'] for dof_state in dof_states]
-                  gripper_jts = np.array([joint_pos[7], joint_pos[8]])
-                  action = np.concatenate((action, gripper_jts), axis = 0).tolist()
-                  self.gym.set_actor_dof_position_targets(self.env, self.robot_handle, action)
-            elif self.control_type == 'velocity':
-                  # if len(action) == 7:
-                  #       act = np.array(action)
-                  #       grippers = np.array([0., 0.])
-                  #       action = np.concatenate((act, grippers), axis = 0).tolist()
-                  self.gym.set_actor_dof_velocity_targets(self.env, self.robot_handle, action)
-            else:
-                  raise NotImplementedError("I will not implement it.")
 
 
       def get_state(self, handle):
@@ -266,8 +142,6 @@ class iiwaScene:
             point_world_hom[:3] = pos
             point_robot_hom = T_world_robot @ point_world_hom
             point_pos_robot = point_robot_hom[:3]
-            if np.linalg.norm(quat) == 0.:
-                  quat = np.array([1., 0., 0., 0.])
             point_rot_world = R.from_quat(quat)
             point_rot_robot = robot_rot_world.inv() * point_rot_world
             point_quat_robot = point_rot_robot.as_quat()  
@@ -277,10 +151,6 @@ class iiwaScene:
       def __del__(self):
             print("scene deleted")
 
-      def orientation_error(self, desired, current):
-            cc = quat_conjugate(current)
-            q_r = quat_mul(desired, cc)
-            return q_r[:, 0:3] * torch.sign(q_r[:, 3]).unsqueeze(-1)
 
       def _create_table_(self):
             table_dims = gymapi.Vec3(0.8, 1.5, 0.04)
@@ -304,6 +174,15 @@ class iiwaScene:
             cube_ = self.gym.create_box(self.sim, cube_size, cube_size, cube_size, self.asset_options)
             return cube_
       
+
+      def refresh_sim(self):
+            self.gym.refresh_rigid_body_state_tensor(self.sim)
+            self.gym.refresh_dof_state_tensor(self.sim)
+            self.gym.refresh_jacobian_tensors(self.sim)
+            self.gym.refresh_mass_matrix_tensors(self.sim)
+
+
+
       def get_viewer(self):
             return self.viewer
       
@@ -319,6 +198,8 @@ class iiwaScene:
       def get_robot_handle(self):
             return self.robot_handle
       
+      def viewer_running(self):
+            return not gym.query_viewer_has_closed(self.viewer)
 
       def step(self):
             t = self.gym.get_sim_time(self.sim)
@@ -346,14 +227,56 @@ class iiwaScene:
 
       def pre_physics_step(self):
             raise NotImplementedError("In child class")
-      
-
-      def viewer_running(self):
-            return not self.gym.query_viewer_has_closed(self.viewer)
-
 
 
 def deg2rad(values):
       const = math.pi/ 180.
       return const*values
 
+
+
+
+
+if __name__ == '__main__':
+      scene = iiwaSceneOSC()
+      gym = scene.get_gym()
+      env = scene.get_env()
+      sim = scene.get_sim()
+      viewer = scene.get_viewer()
+      hand_idxs = []
+      hand_idx = gym.find_actor_rigid_body_index(env, scene.robot_handle, "iiwa_link_ee", gymapi.DOMAIN_SIM)
+
+      print("index",hand_idx)
+      hand_idxs.append(hand_idx)
+      J = gym.acquire_jacobian_tensor(sim, "robot")
+      J = gymtorch.wrap_tensor(J)
+      print(J.shape)
+      j_eef = J[:, scene.iiwa_hand_idx -1, :, :7]
+      massmat = gym.acquire_mass_matrix_tensor(sim, "robot")
+      mm = gymtorch.wrap_tensor(massmat)
+      num_envs = 1
+
+      kp = 5
+      kv = 2 * math.sqrt(kp)
+
+      _rb_states = gym.acquire_rigid_body_state_tensor(sim)
+      rb_states = gymtorch.wrap_tensor(_rb_states)
+
+      print(rb_states.shape)
+      itr = 0
+      while scene.viewer_running():
+
+            if itr % 250 == 0 and args.orn_control:
+                  orn_des = torch.rand_like(orn_des)
+                  orn_des /= torch.norm(orn_des)
+
+            itr += 1
+            scene.refresh_sim()
+            pos_curr = rb_states[hand_idxs, :3]
+            or_curr = rb_states[hand_idxs, 3:7]
+
+            f = torch.randn(1,13,1)
+            gym.set_dof_actuation_force_tensor(sim, gymtorch.unwrap_tensor(f*21))
+
+            scene.step()
+            # break
