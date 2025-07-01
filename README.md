@@ -29,5 +29,5 @@ We aim to train robotic primitive skills to compose a long horizon task with mul
 
 
 
-https://github.com/user-attachments/assets/44b56bde-4733-40c9-93ae-9d64a52c41e6
+
 
