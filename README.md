@@ -1,2 +1,2 @@
-# isaac-gym-kuka_rl
+# iiwa-wsg-gym
  
