@@ -5,7 +5,8 @@
 Long horizon tasks are very difficult to solve in a complex environment, it becomes more challenging if we have to perform dexterous manipulation
 which involves non-pick&place tasks. We aim to divide a task into smaller subtasks using a TAMP, i.e a task and motion planner
 (which is not involved in this part of the project), thus making the long horizon problem easier to solve. We employ RL based policies 
-which are trained using policy gradient algorithms like PPO (Proximal Policy Optimisation), SAC (Soft Actor-Critic).
+which are trained using policy gradient algorithms like PPO (Proximal Policy Optimisation), SAC (Soft Actor-Critic). Some skills like pushing, pulling, wiping,
+opening a cabinet door and other contact rich manipulations are difficult to be engineered hence we enable the robot with such skills.
 
  We aim to create a skill repository which would contain multiple skills like `reach`, `push`, `pull`, `wipe`, etc which could be triggered by the TAMP.
 
