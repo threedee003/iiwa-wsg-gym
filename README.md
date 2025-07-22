@@ -13,7 +13,7 @@ which are trained using policy gradient algorithms like PPO (Proximal Policy Opt
  
 <img width="268" height="245" alt="1" src="https://github.com/user-attachments/assets/cb254664-4d0f-45bd-a088-932a3d2a81a3" />
 
-If a user wants to put the cube in the cabinet's top drawer. Subtasks generated will be.
+If a user wants to `put the cube in the cabinet's top drawer`. Subtasks generated will be.
 ```
 1. Reach top drawer handle.
 2. Grasp top drawer handle.
