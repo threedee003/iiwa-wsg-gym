@@ -30,6 +30,7 @@ If a user wants to put the cube in the cabinet's top drawer. Subtasks generated 
 
 ---DONE---
 ```
+------------------------------------------------------------------------------------------------------------------------------------
 
 Skill Name : `reach`
 
@@ -39,8 +40,8 @@ Skill Name : `reach`
 https://github.com/user-attachments/assets/4084a5f7-e4e2-4ad4-ab6c-b7be6d5288f2
 
 
-The `reach` skill is a basic skill which empowers the robot to reach a reachable position and valid SO(3) rotation in the workspace. \
-
+The `reach` skill is a basic skill which empowers the robot to reach a reachable position and valid SO(3) rotation in the workspace. 
+------------------------------------------------------------------------------------------------------------------------------------
 
 Skill Name : `push`
 
